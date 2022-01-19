@@ -5,8 +5,9 @@ import (
 	"github.com/pkwarc/deviation-rest/deviation"
 )
 
-
 func main() {
-	http.HandleFunc("/random/mean", deviation.RandomMeanHandler)
-	http.ListenAndServe(":5051", nil)
+	numbersGenerator := deviation.RandomOrgGenerateNumbers
+	handler := deviation.GetRandomMeanHandler(numbersGenerator)
+	http.Handle("/random/mean", handler)
+	http.ListenAndServe(":7777", nil)
 }

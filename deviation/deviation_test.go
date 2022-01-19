@@ -1,43 +1,64 @@
 package deviation
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
-	"math/big"
+	"time"
 )
 
-func TestRandomMeanHandler(t *testing.T) {
+func GenerateFixedNumbers(ctx context.Context, num uint16) ([]float64, error) {
+	return []float64{1, 2, 3, 4, 5}, nil
+}
+
+func TestRandomMeanHandlerValidation(t *testing.T) {
 	cases := []struct {
 		Name string
 		Method string
 		Url string
 		ExpectedStatus int
+		ExpectedBody string
 	} {
 		{
 			"Negative r and l",
 			"GET",
 			"/random/mean?r=-1&l=-1",
 			400,
+			`{"Err":"strconv.ParseUint: parsing \"-1\": invalid syntax"}`,
 		},
 		{
 			"Positive r but l is missed",
 			"GET",
-			"/random/mean?r=-1",
+			"/random/mean?r=1",
 			400,
+			`{"Err":"strconv.ParseUint: parsing \"\": invalid syntax"}`,
 		},
 		{
 			"No r and l",
 			"GET",
 			"/random/mean",
 			400,
+			`{"Err":"strconv.ParseUint: parsing \"\": invalid syntax"}`,
 		},
 		{
-			"Positive r and l",
+			"l out of the valid range",
 			"GET",
-			"/random/mean?r=10&l=15",
-			200,
+			"/random/mean?r=1&l=10001",
+			400,
+			`{"Err":"'l' should be between 1 and 10000"}`,
+		},
+		{
+			"r out of the valid range",
+			"GET",
+			"/random/mean?r=1000&l=100",
+			400,
+			`{"Err":"'r' should be between 1 and 100"}`,
 		},
 	}
 
@@ -49,15 +70,77 @@ func TestRandomMeanHandler(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			handler := http.HandlerFunc(RandomMeanHandler)
-
+			handler := GetRandomMeanHandler(GenerateFixedNumbers)
 			handler.ServeHTTP(recorder, req)
+			body := strings.TrimSpace(recorder.Body.String())
 
 			if status := recorder.Code; status != test.ExpectedStatus {
 				t.Errorf("handler returned wrong status code: got %v want %v", status, test.ExpectedStatus)
 			}
+			if body != test.ExpectedBody {
+				t.Errorf("handler returned invalid body: got: %s want %s", body, test.ExpectedBody)
+			}
 		})
 	}
+}
+
+func TestRandomMeanHandlerTimeout(t *testing.T) {
+	slowServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Second)
+	}))
+	slowGenerateNumbers := func(ctx context.Context, num uint16) ([]float64, error) {
+		return randomGenerateNumbers(ctx, slowServer.URL, num)
+	}
+	req, err := http.NewRequest(http.MethodGet, "/random/mean?l=10&r=10", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handler := GetRandomMeanHandler(slowGenerateNumbers)
+	handler.ServeHTTP(recorder, req)
+
+	if status := recorder.Code; status != http.StatusRequestTimeout {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusRequestTimeout)
+	}
+}
+
+func TestRandomMeanHandlerResult(t *testing.T) {
+	l := 100
+	r := 10
+	randomInt := 49
+	randomOrgMock := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		builder := strings.Builder{}
+		counter := l
+		for counter > 0 {
+			counter--
+			line := fmt.Sprintf("%d\n", randomInt)
+			builder.WriteString(line)
+		}
+		rw.Write([]byte(builder.String()))
+	}))
+	generateNumbersMock := func(ctx context.Context, num uint16) ([]float64, error) {
+		return randomGenerateNumbers(ctx, randomOrgMock.URL , num)
+	}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/random/mean?l=%d&r=%d", l, r), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handler := GetRandomMeanHandler(generateNumbersMock)
+	handler.ServeHTTP(recorder, req)
+
+	data := []DevData{}
+	err = json.Unmarshal(recorder.Body.Bytes(), &data) 
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status := recorder.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+	if len(data) != r + 1 {
+		t.Errorf("got %v want %v", len(data), r + 1)
+	} 
 }
 
 func TestCalculateDeviation(t *testing.T) {

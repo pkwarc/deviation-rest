@@ -1,116 +1,147 @@
 package deviation
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"context"
+	"encoding/json"
+	"log"
 
 	"github.com/montanaflynn/stats"
 )
 
 const (
-	RandomApiUrl = "https://www.random.org/integers/"
-	ApiLengthMax = 10000
-	ApiLengthMin = 1
+	RandomOrgUrl = "https://www.random.org/integers/"
+	RandomOrgLengthMax = 10000
+	RandomOrgLengthMin = 1
+	RandomOrgRequestsMin = 1
+	RandomOrgRequestsMax = 100
 	TimeoutMs = 1000
 )
+
+var errLengthOutOfRange = fmt.Sprintf("'l' should be between %d and %d", RandomOrgLengthMin, RandomOrgLengthMax)
+var errMaxRequestsOutOfRange = fmt.Sprintf("'r' should be between %d and %d", RandomOrgRequestsMin, RandomOrgRequestsMax)
 
 type DevData struct {
 	StdDev float64 `json:"stddev"`
 	Data []float64   `json:"data"`
 } 
 
-type randomApiConfig struct {
-	Num uint16
-	format string
-	min int
-	max int
-	col uint8
-	base uint
+type ApiError struct {
+	Err string
 }
 
-func (config randomApiConfig) Url() string {
-	return RandomApiUrl + 
-		fmt.Sprintf("?num=%v", config.Num) +
-		fmt.Sprintf("&format=%v", config.format) +
-		fmt.Sprintf("&min=%v", config.min) +
-		fmt.Sprintf("&max=%v", config.max) +
-		fmt.Sprintf("&col=%v", config.col) +
-		fmt.Sprintf("&base=%v", config.base)
-}
+type GenerateNumbers func (context.Context, uint16) ([]float64, error)
 
-func NewRandomApiConfig(num uint16) randomApiConfig {
-	return randomApiConfig{
-		Num: num,
-		format: "plain",
-		min: -1000000000,
-		max: 1000000000,
-		col: 1,
-		base: 10,
-	}
-}
+func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		encoder := json.NewEncoder(w)
+		requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
 
-func RandomMeanHandler(w http.ResponseWriter, r *http.Request) {
-	requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
-	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	length, err := strconv.ParseUint(r.URL.Query().Get("l"), 10, 32)
-	if err != nil || length < ApiLengthMin || length > ApiLengthMax {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			encoder.Encode(ApiError{ err.Error() })
+			return
+		}
+		if requests < RandomOrgLengthMin || requests > RandomOrgRequestsMax {
+			w.WriteHeader(http.StatusBadRequest)
+			encoder.Encode(ApiError{ errMaxRequestsOutOfRange })
+			return
+		}
 
-	var counter uint64 = 0 
-	ch := make(chan []float64)
-	client := http.DefaultClient
-	
-	for counter < requests {
-		counter++
-		go func() {
-			req, err := http.NewRequest("GET", NewRandomApiConfig(uint16(length)).Url(), nil)
-			if err != nil {
-				log.Fatalf("%v" ,err)
+		length, err := strconv.ParseUint(r.URL.Query().Get("l"), 10, 32)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			encoder.Encode(ApiError{ err.Error() })
+			return
+		}
+		if length < RandomOrgLengthMin || length > RandomOrgLengthMax {
+			w.WriteHeader(http.StatusBadRequest)
+			encoder.Encode(ApiError{ errLengthOutOfRange })
+			return
+		}
+
+		var counter uint64 = 0 
+		ch := make(chan []float64)
+		cherr := make(chan error) 
+		ctx, cancel := context.WithTimeout(r.Context(), TimeoutMs*time.Millisecond)
+		defer cancel()
+		for counter < requests {
+			counter++
+			go func() {
+				floats, err := generate(ctx, uint16(length))
+				if err != nil {
+					cherr <- err
+					log.Printf("%v", err)
+					return
+				}
+				ch <- floats
+			}();
+		}
+
+		allNumbers := make([]float64, 0)
+		numbers := make([][]float64, 0)
+		isTimeout := false
+		for counter > 0 {
+			counter--
+			select {
+			case floats := <- ch:
+				allNumbers = append(allNumbers, floats...)
+				numbers = append(numbers, floats)
+			case err := <- cherr:
+				isTimeout = errors.Is(err, context.DeadlineExceeded)
 			}
-			ctx, cancel := context.WithTimeout(req.Context(), TimeoutMs*time.Millisecond)
-			defer cancel()
-			req = req.WithContext(ctx)
-			res, err := client.Do(req)
-			ints, err := parseRandomApiResponse(res)
-			ch <- ints
-		}();
-	}
+		}
+		if isTimeout {
+			w.WriteHeader(http.StatusRequestTimeout)
+			return
+		}
+		numbers = append(numbers, allNumbers)
+		results := CalculateDeviation(numbers)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(results)
+	})
+}
 
-	allNumbers := make([]float64, 0)
-	numbers := make([][]float64, 0)
-	for counter > 0 {
-		counter--
-		floats := <- ch 
-		allNumbers = append(allNumbers, floats...)
-		numbers = append(numbers, floats)
+func GetRandomOrgUrl(num uint16) string {
+	return RandomOrgUrl + 
+		fmt.Sprintf("?num=%v", num) +
+		fmt.Sprintf("&format=%v", "plain") +
+		fmt.Sprintf("&min=%v", -1000000000) +
+		fmt.Sprintf("&max=%v", 1000000000) +
+		fmt.Sprintf("&col=%v", 1) +
+		fmt.Sprintf("&base=%v", 10)
+}
+
+func randomGenerateNumbers(ctx context.Context, url string, num uint16) (data []float64, err error) {
+	client := http.DefaultClient
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("%v", err)
 	}
-	numbers = append(numbers, allNumbers)
-	json.NewEncoder(w).Encode(CalculateDeviation(numbers))
+	req = req.WithContext(ctx)
+	res, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	return parseRandomApiResponse(res)
+}
+
+func RandomOrgGenerateNumbers(ctx context.Context, num uint16) (data []float64, err error) {
+	url := GetRandomOrgUrl(num)
+	return randomGenerateNumbers(ctx, url, num)
 }
 
 func CalculateDeviation(data [][]float64) []DevData {
 	results := make([]DevData, 0)
 	for _, row := range data {
-		fmt.Println(row)
 		sdev, err := stats.StandardDeviation(row)
-		fmt.Println(sdev)
 		if err != nil {
 			log.Printf("%v", err)
 		} else {
