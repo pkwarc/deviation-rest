@@ -42,8 +42,8 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		encoder := json.NewEncoder(w)
-		requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
 
+		requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			encoder.Encode(ApiError{ err.Error() })
@@ -87,21 +87,28 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 
 		allNumbers := make([]float64, 0)
 		numbers := make([][]float64, 0)
-		isTimeout := false
-		for counter > 0 {
+		var fail error
+		for counter > 0 && fail == nil {
 			counter--
 			select {
 			case floats := <- ch:
 				allNumbers = append(allNumbers, floats...)
 				numbers = append(numbers, floats)
 			case err := <- cherr:
-				isTimeout = errors.Is(err, context.DeadlineExceeded)
+				fail = err
 			}
 		}
-		if isTimeout {
-			w.WriteHeader(http.StatusRequestTimeout)
+
+		if fail != nil {
+			if errors.Is(fail, context.DeadlineExceeded) {
+				w.WriteHeader(http.StatusRequestTimeout)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			encoder.Encode(ApiError{ fail.Error() })
 			return
-		}
+		} 
+
 		numbers = append(numbers, allNumbers)
 		results := CalculateDeviation(numbers)
 		w.WriteHeader(http.StatusOK)
