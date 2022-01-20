@@ -1,17 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"fmt"
 
 	"github.com/pkwarc/deviation-rest/deviation"
 )
 
 const (
-	DEFAULT_PORT = 7777
+	DEFAULT_PORT  = 7777
 	PORT_ENV_NAME = "STD_DEV_PORT"
 )
 

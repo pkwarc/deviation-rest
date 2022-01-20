@@ -19,12 +19,12 @@ func GenerateFixedNumbers(ctx context.Context, num uint16) ([]float64, error) {
 
 func TestRandomMeanHandlerValidation(t *testing.T) {
 	cases := []struct {
-		Name string
-		Method string
-		Url string
+		Name           string
+		Method         string
+		Url            string
 		ExpectedStatus int
-		ExpectedBody string
-	} {
+		ExpectedBody   string
+	}{
 		{
 			"Negative r and l",
 			"GET",
@@ -121,7 +121,7 @@ func TestRandomMeanHandlerStdDevResultIsOK(t *testing.T) {
 		rw.Write([]byte(builder.String()))
 	}))
 	generateNumbersMock := func(ctx context.Context, num uint16) ([]float64, error) {
-		return randomGenerateNumbers(ctx, randomOrgMock.URL , num)
+		return randomGenerateNumbers(ctx, randomOrgMock.URL, num)
 	}
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/random/mean?l=%d&r=%d", l, r), nil)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestRandomMeanHandlerStdDevResultIsOK(t *testing.T) {
 	handler.ServeHTTP(recorder, req)
 
 	var data []DevData
-	err = json.Unmarshal(recorder.Body.Bytes(), &data) 
+	err = json.Unmarshal(recorder.Body.Bytes(), &data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +140,9 @@ func TestRandomMeanHandlerStdDevResultIsOK(t *testing.T) {
 	if status := recorder.Code; status != http.StatusOK {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
 	}
-	if len(data) != r + 1 {
-		t.Errorf("got %v want %v", len(data), r + 1)
-	} 
+	if len(data) != r+1 {
+		t.Errorf("got %v want %v", len(data), r+1)
+	}
 	const expectedStdDev = 0
 	for idx := range data {
 		result := data[idx]

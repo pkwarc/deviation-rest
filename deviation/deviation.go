@@ -1,42 +1,42 @@
 package deviation
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-	"context"
-	"encoding/json"
-	"log"
 
 	"github.com/montanaflynn/stats"
 )
 
 const (
-	RandomOrgUrl = "https://www.random.org/integers/"
-	RandomOrgLengthMax = 10000
-	RandomOrgLengthMin = 1
+	RandomOrgUrl         = "https://www.random.org/integers/"
+	RandomOrgLengthMax   = 10000
+	RandomOrgLengthMin   = 1
 	RandomOrgRequestsMin = 1
 	RandomOrgRequestsMax = 100
-	TimeoutMs = 1000
+	TimeoutMs            = 1000
 )
 
 var errLengthOutOfRange = fmt.Sprintf("'l' should be between %d and %d", RandomOrgLengthMin, RandomOrgLengthMax)
 var errMaxRequestsOutOfRange = fmt.Sprintf("'r' should be between %d and %d", RandomOrgRequestsMin, RandomOrgRequestsMax)
 
 type DevData struct {
-	StdDev float64 `json:"stddev"`
-	Data []float64   `json:"data"`
-} 
+	StdDev float64   `json:"stddev"`
+	Data   []float64 `json:"data"`
+}
 
 type ApiError struct {
 	Err string
 }
 
-type GenerateNumbers func (context.Context, uint16) ([]float64, error)
+type GenerateNumbers func(context.Context, uint16) ([]float64, error)
 
 func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,30 +46,30 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 		requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			encoder.Encode(ApiError{ err.Error() })
+			encoder.Encode(ApiError{err.Error()})
 			return
 		}
 		if requests < RandomOrgLengthMin || requests > RandomOrgRequestsMax {
 			w.WriteHeader(http.StatusBadRequest)
-			encoder.Encode(ApiError{ errMaxRequestsOutOfRange })
+			encoder.Encode(ApiError{errMaxRequestsOutOfRange})
 			return
 		}
 
 		length, err := strconv.ParseUint(r.URL.Query().Get("l"), 10, 32)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			encoder.Encode(ApiError{ err.Error() })
+			encoder.Encode(ApiError{err.Error()})
 			return
 		}
 		if length < RandomOrgLengthMin || length > RandomOrgLengthMax {
 			w.WriteHeader(http.StatusBadRequest)
-			encoder.Encode(ApiError{ errLengthOutOfRange })
+			encoder.Encode(ApiError{errLengthOutOfRange})
 			return
 		}
 
-		var counter uint64 = 0 
+		var counter uint64 = 0
 		ch := make(chan []float64)
-		cherr := make(chan error) 
+		cherr := make(chan error)
 		ctx, cancel := context.WithTimeout(r.Context(), TimeoutMs*time.Millisecond)
 		defer cancel()
 		for counter < requests {
@@ -82,7 +82,7 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 					return
 				}
 				ch <- floats
-			}();
+			}()
 		}
 
 		allNumbers := make([]float64, 0)
@@ -91,10 +91,10 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 		for counter > 0 && fail == nil {
 			counter--
 			select {
-			case floats := <- ch:
+			case floats := <-ch:
 				allNumbers = append(allNumbers, floats...)
 				numbers = append(numbers, floats)
-			case err := <- cherr:
+			case err := <-cherr:
 				fail = err
 			}
 		}
@@ -105,9 +105,9 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 			} else {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			encoder.Encode(ApiError{ fail.Error() })
+			encoder.Encode(ApiError{fail.Error()})
 			return
-		} 
+		}
 
 		numbers = append(numbers, allNumbers)
 		results := CalculateDeviation(numbers)
@@ -117,7 +117,7 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 }
 
 func GetRandomOrgUrl(num uint16) string {
-	return RandomOrgUrl + 
+	return RandomOrgUrl +
 		fmt.Sprintf("?num=%v", num) +
 		fmt.Sprintf("&format=%v", "plain") +
 		fmt.Sprintf("&min=%v", -1000000000) +
@@ -164,7 +164,7 @@ func parseRandomApiResponse(res *http.Response) ([]float64, error) {
 	if err != nil {
 		return nil, err
 	}
-	text := strings.TrimSpace(string(body)) 
+	text := strings.TrimSpace(string(body))
 	if res.StatusCode == http.StatusOK {
 		elements := strings.Split(text, "\n")
 		numbers := make([]float64, 0)
