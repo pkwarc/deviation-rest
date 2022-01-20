@@ -26,39 +26,39 @@ func TestRandomMeanHandlerValidation(t *testing.T) {
 		ExpectedBody   string
 	}{
 		{
-			"Negative r and l",
+			"Negative requests and length",
 			"GET",
-			"/random/mean?r=-1&l=-1",
+			"/random/mean?requests=-1&length=-1",
 			400,
 			`{"Err":"strconv.ParseUint: parsing \"-1\": invalid syntax"}`,
 		},
 		{
-			"Positive r but l is missed",
+			"Positive requests but length is missed",
 			"GET",
-			"/random/mean?r=1",
+			"/random/mean?requests=1",
 			400,
 			`{"Err":"strconv.ParseUint: parsing \"\": invalid syntax"}`,
 		},
 		{
-			"No r and l",
+			"No requests and length",
 			"GET",
 			"/random/mean",
 			400,
 			`{"Err":"strconv.ParseUint: parsing \"\": invalid syntax"}`,
 		},
 		{
-			"l out of the valid range",
+			"length out of the valid range",
 			"GET",
-			"/random/mean?r=1&l=10001",
+			"/random/mean?requests=1&length=10001",
 			400,
-			`{"Err":"'l' should be between 1 and 10000"}`,
+			`{"Err":"'length' should be between 1 and 10000"}`,
 		},
 		{
-			"r out of the valid range",
+			"requests out of the valid range",
 			"GET",
-			"/random/mean?r=1000&l=100",
+			"/random/mean?requests=1000&length=100",
 			400,
-			`{"Err":"'r' should be between 1 and 100"}`,
+			`{"Err":"'requests' should be between 1 and 100"}`,
 		},
 	}
 
@@ -91,7 +91,7 @@ func TestRandomMeanHandlerTimeout(t *testing.T) {
 	slowGenerateNumbers := func(ctx context.Context, num uint16) ([]float64, error) {
 		return randomGenerateNumbers(ctx, slowServer.URL, num)
 	}
-	req, err := http.NewRequest(http.MethodGet, "/random/mean?l=10&r=10", nil)
+	req, err := http.NewRequest(http.MethodGet, "/random/mean?length=10&requests=10", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestRandomMeanHandlerStdDevResultIsOK(t *testing.T) {
 	generateNumbersMock := func(ctx context.Context, num uint16) ([]float64, error) {
 		return randomGenerateNumbers(ctx, randomOrgMock.URL, num)
 	}
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/random/mean?l=%d&r=%d", l, r), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/random/mean?length=%d&requests=%d", l, r), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

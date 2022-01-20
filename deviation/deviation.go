@@ -24,8 +24,8 @@ const (
 	TimeoutMs            = 1000
 )
 
-var errLengthOutOfRange = fmt.Sprintf("'l' should be between %d and %d", RandomOrgLengthMin, RandomOrgLengthMax)
-var errMaxRequestsOutOfRange = fmt.Sprintf("'r' should be between %d and %d", RandomOrgRequestsMin, RandomOrgRequestsMax)
+var errLengthOutOfRange = fmt.Sprintf("'length' should be between %d and %d", RandomOrgLengthMin, RandomOrgLengthMax)
+var errMaxRequestsOutOfRange = fmt.Sprintf("'requests' should be between %d and %d", RandomOrgRequestsMin, RandomOrgRequestsMax)
 
 type DevData struct {
 	StdDev float64   `json:"stddev"`
@@ -43,7 +43,7 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		encoder := json.NewEncoder(w)
 
-		requests, err := strconv.ParseUint(r.URL.Query().Get("r"), 10, 32)
+		requests, err := strconv.ParseUint(r.URL.Query().Get("requests"), 10, 32)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			encoder.Encode(ApiError{err.Error()})
@@ -55,7 +55,7 @@ func GetRandomMeanHandler(generate GenerateNumbers) http.Handler {
 			return
 		}
 
-		length, err := strconv.ParseUint(r.URL.Query().Get("l"), 10, 32)
+		length, err := strconv.ParseUint(r.URL.Query().Get("length"), 10, 32)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			encoder.Encode(ApiError{err.Error()})
