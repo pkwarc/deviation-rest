@@ -104,13 +104,15 @@ func TestRandomMeanHandlerTimeout(t *testing.T) {
 	}
 }
 
-func TestRandomMeanHandlerResult(t *testing.T) {
-	l := 100
-	r := 10
-	randomInt := 49
+func TestRandomMeanHandlerStdDevResultIsOK(t *testing.T) {
+	const l = 100
+	const r = 10
+	const randomInt = 49
+
 	randomOrgMock := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		builder := strings.Builder{}
+		var builder strings.Builder
 		counter := l
+		// the response body in the random.org 1 col plain format
 		for counter > 0 {
 			counter--
 			line := fmt.Sprintf("%d\n", randomInt)
@@ -129,7 +131,7 @@ func TestRandomMeanHandlerResult(t *testing.T) {
 	handler := GetRandomMeanHandler(generateNumbersMock)
 	handler.ServeHTTP(recorder, req)
 
-	data := []DevData{}
+	var data []DevData
 	err = json.Unmarshal(recorder.Body.Bytes(), &data) 
 	if err != nil {
 		t.Fatal(err)
@@ -141,6 +143,21 @@ func TestRandomMeanHandlerResult(t *testing.T) {
 	if len(data) != r + 1 {
 		t.Errorf("got %v want %v", len(data), r + 1)
 	} 
+	const expectedStdDev = 0
+	for idx := range data {
+		result := data[idx]
+		if result.StdDev != expectedStdDev {
+			t.Errorf("got %v want %v", result.StdDev, expectedStdDev)
+		}
+		dataSetLen := len(result.Data)
+		expectedLen := l
+		if idx == r {
+			expectedLen = l * r
+		}
+		if dataSetLen != expectedLen {
+			t.Errorf("got %v want %v", dataSetLen, expectedLen)
+		}
+	}
 }
 
 func TestCalculateDeviation(t *testing.T) {
